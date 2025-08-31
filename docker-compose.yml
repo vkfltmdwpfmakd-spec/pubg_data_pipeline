@@ -1,0 +1,194 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  producer:
+    build: .
+    container_name: producer
+    command: ["python", "producer.py"]
+    depends_on:
+      - kafka
+    restart: always
+    env_file:
+      - ./.env
+
+  # consumer:
+  #   build: .
+  #   container_name: consumer
+  #   command: ["python", "consumer.py"]
+  #   depends_on:
+  #     - kafka
+  #   restart: always
+  #   env_file:
+  #     - ./.env
+
+  spark-master:
+    image: bitnami/spark:3
+    container_name: spark-master
+    ports:
+      - "8080:8080" # Spark Master Web UI
+      - "7077:7077"
+    volumes:
+      - ./spark_apps:/opt/bitnami/spark/apps # 로컬의 spark_apps 폴더와 컨테이너 폴더 연결
+    environment:
+      - SPARK_MODE=master
+
+  spark-streaming:
+    image: bitnami/spark:3
+    container_name: spark-streaming
+    depends_on:
+      - spark-master
+      - kafka
+      - namenode
+      - hdfs-init
+    volumes:
+      - ./spark_apps:/opt/bitnami/spark/apps
+    environment:
+      - SPARK_MODE=client
+    command: [
+      "bash", "-c",
+      "echo 'Spark 대기중..' &&
+       until timeout 1 bash -c 'cat < /dev/null > /dev/tcp/kafka/29092' 2>/dev/null; do sleep 5; done &&
+       echo 'Kafka 준비 완료' &&
+       until timeout 1 bash -c 'cat < /dev/null > /dev/tcp/spark-master/7077' 2>/dev/null; do sleep 5; done &&
+       echo 'Spark Master 준비 완료' &&
+       echo 'HDFS 대기중..' && 
+       until timeout 1 bash -c 'cat < /dev/null > /dev/tcp/namenode/8020' 2>/dev/null; do sleep 5; done && 
+       echo 'HDFS 준비 완료' && 
+       echo 'Spark Streaming 실행..' &&
+       spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0 /opt/bitnami/spark/apps/pubg_streaming.py"
+    ]
+    
+
+  spark-worker:
+    image: bitnami/spark:3
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    volumes:
+      - ./spark_apps:/opt/bitnami/spark/apps
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPAKR_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - "9870:9870" # HDFS Web UI
+      - "8020:8020" # HDFS Data Port
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    depends_on:
+      - namenode
+    ports:
+      - "9864:9864" # DataNode Web UI
+      - "9866:9866" # DataNode Data Transfer Port
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+      CORE_CONF_fs_defaultFS: "hdfs://namenode:8020"
+
+  hdfs-init:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: hdfs-init
+    depends_on:
+      - namenode
+      - datanode
+    environment:
+      - CLUSTER_NAME=test
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+    entrypoint: [] # command가 무시되서 추가 
+    command: [
+      "bash", "-c",
+      "echo 'HDFS 대기중..' && 
+       until hdfs dfs -fs hdfs://namenode:8020 -ls /; do sleep 5; done && 
+       echo 'HDFS 준비 완료' && 
+       hdfs dfs -fs hdfs://namenode:8020 -mkdir -p /pubg/players /pubg/matches /pubg/checkpoints/players /pubg/checkpoints/matches && 
+       hdfs dfs -fs hdfs://namenode:8020 -chmod -R 777 /pubg && 
+       echo 'HDFS 경로 생성 및 권한부여 완료'"
+    ]
+    restart: "no"
+
+
+  # 실시간 모니터링 대시보드 스택
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password123
+      - DOCKER_INFLUXDB_INIT_ORG=pubg-org
+      - DOCKER_INFLUXDB_INIT_BUCKET=pubg-metrics
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - influxdb
+
+  # 실시간 메트릭 수집기 
+  metrics-collector:
+    build: .
+    container_name: metrics-collector
+    command: ["python", "metrics_collector.py"]
+    depends_on:
+      - kafka
+      - influxdb
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-auth-token
+      - INFLUXDB_ORG=pubg-org
+      - INFLUXDB_BUCKET=pubg-metrics
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+  influxdb_data:
+  influxdb_config:
+  grafana_data:
