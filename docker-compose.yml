@@ -5,6 +5,7 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      TZ: Asia/Seoul
 
   kafka:
     image: confluentinc/cp-kafka:7.0.1
@@ -20,6 +21,7 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      TZ: Asia/Seoul
 
   producer:
     build: .
@@ -28,6 +30,8 @@ services:
     depends_on:
       - kafka
     restart: always
+    environment:
+      - TZ=Asia/Seoul
     env_file:
       - ./.env
 
@@ -51,6 +55,7 @@ services:
       - ./spark_apps:/opt/bitnami/spark/apps # 로컬의 spark_apps 폴더와 컨테이너 폴더 연결
     environment:
       - SPARK_MODE=master
+      - TZ=Asia/Seoul
 
   spark-streaming:
     image: bitnami/spark:3
@@ -64,6 +69,7 @@ services:
       - ./spark_apps:/opt/bitnami/spark/apps
     environment:
       - SPARK_MODE=client
+      - TZ=Asia/Seoul
     command: [
       "bash", "-c",
       "echo 'Spark 대기중..' &&
@@ -91,6 +97,7 @@ services:
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPAKR_WORKER_CORES=2
       - SPARK_WORKER_MEMORY=2G
+      - TZ=Asia/Seoul
 
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
@@ -132,6 +139,9 @@ services:
       "echo 'HDFS 대기중..' && 
        until hdfs dfs -fs hdfs://namenode:8020 -ls /; do sleep 5; done && 
        echo 'HDFS 준비 완료' && 
+       echo 'Safe Mode 해제 중..' &&
+       hdfs dfsadmin -fs hdfs://namenode:8020 -safemode leave && 
+       echo 'Safe Mode 해제 완료' &&
        hdfs dfs -fs hdfs://namenode:8020 -mkdir -p /pubg/players /pubg/matches /pubg/checkpoints/players /pubg/checkpoints/matches && 
        hdfs dfs -fs hdfs://namenode:8020 -chmod -R 777 /pubg && 
        echo 'HDFS 경로 생성 및 권한부여 완료'"
@@ -152,6 +162,7 @@ services:
       - DOCKER_INFLUXDB_INIT_ORG=pubg-org
       - DOCKER_INFLUXDB_INIT_BUCKET=pubg-metrics
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+      - TZ=Asia/Seoul
     volumes:
       - influxdb_data:/var/lib/influxdb2
       - influxdb_config:/etc/influxdb2
@@ -164,6 +175,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin123
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - TZ=Asia/Seoul
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
@@ -185,6 +197,71 @@ services:
       - INFLUXDB_TOKEN=my-super-secret-auth-token
       - INFLUXDB_ORG=pubg-org
       - INFLUXDB_BUCKET=pubg-metrics
+      - TZ=Asia/Seoul
+
+  # 고급 분석 Spark 애플리케이션
+  spark-advanced-analytics:
+    image: bitnami/spark:3
+    container_name: spark-advanced-analytics
+    depends_on:
+      - spark-master
+      - kafka
+      - namenode
+      - hdfs-init
+    volumes:
+      - ./spark_apps:/opt/bitnami/spark/apps
+    environment:
+      - SPARK_MODE=client
+      - TZ=Asia/Seoul
+    command: [
+      "bash", "-c",
+      "echo 'Advanced Analytics 대기중..' &&
+       until timeout 1 bash -c 'cat < /dev/null > /dev/tcp/kafka/29092' 2>/dev/null; do sleep 5; done &&
+       echo 'Kafka 준비 완료' &&
+       until timeout 1 bash -c 'cat < /dev/null > /dev/tcp/spark-master/7077' 2>/dev/null; do sleep 5; done &&
+       echo 'Spark Master 준비 완료' &&
+       echo 'Advanced Analytics 실행..' &&
+       spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0 /opt/bitnami/spark/apps/advanced_analytics.py"
+    ]
+
+  # 고급 분석 메트릭 수집기
+  advanced-metrics-collector:
+    build: .
+    container_name: advanced-metrics-collector
+    command: ["python", "advanced_metrics_collector.py"]
+    depends_on:
+      - kafka
+      - influxdb
+      - spark-advanced-analytics
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-auth-token
+      - INFLUXDB_ORG=pubg-org
+      - INFLUXDB_BUCKET=pubg-metrics
+      - TZ=Asia/Seoul
+
+  # 실시간 알림 관리자
+  alert-manager:
+    build: .
+    container_name: alert-manager
+    command: ["python", "alert_manager.py"]
+    depends_on:
+      - kafka
+      - spark-advanced-analytics
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - EMAIL_ENABLED=${EMAIL_ENABLED:-false}
+      - EMAIL_USERNAME=${EMAIL_USERNAME:-}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - EMAIL_TO=${EMAIL_TO:-}
+      - SMTP_SERVER=${SMTP_SERVER:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - TZ=Asia/Seoul
 
 volumes:
   hadoop_namenode:

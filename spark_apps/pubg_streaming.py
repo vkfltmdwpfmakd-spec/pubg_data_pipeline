@@ -7,9 +7,13 @@ import json
 spark = SparkSession.builder \
     .appName("PUBG_Streaming_Pipeline") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0") \
+    .config("spark.sql.session.timeZone", "Asia/Seoul") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
+
+# 한국 시간대 설정
+spark.sql("SET time_zone = 'Asia/Seoul'")
 
 # 카프카 데이터 읽기
 df = spark.readStream \
@@ -17,6 +21,7 @@ df = spark.readStream \
     .option("kafka.bootstrap.servers", "kafka:29092") \
     .option("subscribe", "pubg-matches") \
     .option("startingOffsets", "latest") \
+    .option("failOnDataLoss", "false") \
     .load()
 
 # 스키마 정의

@@ -1,7 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'PUBG Analytics'
+  - name: 'PUBG Dashboards'
+    orgId: 1
+    folder: ''
     type: file
     disableDeletion: false
     updateIntervalSeconds: 10

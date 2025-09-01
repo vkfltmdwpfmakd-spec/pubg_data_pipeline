@@ -3,10 +3,14 @@ import json
 import requests
 import time
 import logging
+import pytz
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 from dotenv import load_dotenv
 from pubg_python import PUBG, Shard
+
+# 한국 시간대 설정
+KST = pytz.timezone('Asia/Seoul')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

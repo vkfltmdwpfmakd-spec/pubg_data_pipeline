@@ -103,7 +103,7 @@
               "type": "influxdb",
               "uid": "influxdb"
             },
-            "query": "from(bucket: \"pubg-metrics\")\n  |> range(start: -2h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"player_performance_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"kills\")\n  |> group(columns: [\"player_name\"])",
+            "query": "from(bucket: \"pubg-metrics\")\n  |> range(start: -3d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"player_performance_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"kills\")\n  |> group(columns: [\"player_name\"])",
             "refId": "A"
           }
         ],
@@ -168,7 +168,7 @@
               "type": "influxdb",
               "uid": "influxdb"
             },
-            "query": "from(bucket: \"pubg-metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"player_kda\")\n  |> filter(fn: (r) => r[\"_field\"] == \"kda_ratio\")\n  |> group(columns: [\"player_name\"])\n  |> last()",
+            "query": "from(bucket: \"pubg-metrics\")\n  |> range(start: -3d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"player_kda\")\n  |> filter(fn: (r) => r[\"_field\"] == \"kda_ratio\")\n  |> group(columns: [\"player_name\"])\n  |> last()",
             "refId": "A"
           }
         ],

@@ -2,11 +2,15 @@ import os
 import json
 import time
 import logging
+import pytz
 from datetime import datetime
 from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+
+# 한국 시간대 설정
+KST = pytz.timezone('Asia/Seoul')
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
