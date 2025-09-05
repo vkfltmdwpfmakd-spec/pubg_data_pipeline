@@ -10,3 +10,4 @@ COPY consumer/consumer.py ./consumer.py
 COPY monitoring/metrics_collector.py ./metrics_collector.py
 COPY monitoring/advanced_metrics_collector.py ./advanced_metrics_collector.py
 COPY monitoring/alert_manager.py ./alert_manager.py
+COPY monitoring/performance_monitor.py ./performance_monitor.py

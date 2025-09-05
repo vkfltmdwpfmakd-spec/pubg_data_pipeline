@@ -263,6 +263,24 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - TZ=Asia/Seoul
 
+  # 성능 모니터링 시스템
+  performance-monitor:
+    build: .
+    container_name: performance-monitor
+    command: ["python", "performance_monitor.py"]
+    depends_on:
+      - kafka
+      - influxdb
+      - spark-master
+    restart: always
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-auth-token
+      - INFLUXDB_ORG=pubg-org
+      - INFLUXDB_BUCKET=pubg-metrics
+      - TZ=Asia/Seoul
+
 volumes:
   hadoop_namenode:
   hadoop_datanode:

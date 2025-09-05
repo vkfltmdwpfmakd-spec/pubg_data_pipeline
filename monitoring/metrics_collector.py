@@ -53,10 +53,10 @@ def create_kafka_consumer():
             logging.warning("Kafka 브로커에 연결할 수 없습니다. 5초 후 재시도합니다.")
             time.sleep(5)
 
-def extract_business_metrics(data):
+def extract_business_metrics(data, processing_start_time=None):
     """비즈니스 메트릭 추출"""
     metrics = []
-    current_time = datetime.utcnow()
+    current_time = datetime.now(KST)
     
     try:
         # 플레이어 기본 정보
@@ -141,6 +141,12 @@ def extract_business_metrics(data):
             .field("messages_processed", 1) \
             .field("players_in_batch", len(matches)) \
             .field("data_freshness_minutes", 0)  # 실시간이므로 0
+        
+        # 처리 지연시간 메트릭 추가
+        if processing_start_time:
+            processing_latency = (current_time.timestamp() - processing_start_time) * 1000  # ms
+            system_point = system_point.field("processing_latency_ms", processing_latency)
+        
         metrics.append(system_point)
         
         return metrics
@@ -170,8 +176,11 @@ def main():
         
         for message in consumer:
             try:
+                # 처리 시작 시간 기록
+                processing_start_time = time.time()
+                
                 # 비즈니스 메트릭 추출
-                metrics = extract_business_metrics(message.value)
+                metrics = extract_business_metrics(message.value, processing_start_time)
                 
                 if metrics:
                     # InfluxDB에 메트릭 저장

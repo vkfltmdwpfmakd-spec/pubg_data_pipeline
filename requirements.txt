@@ -4,3 +4,4 @@ python-dotenv
 pubg-python
 influxdb-client
 pytz
+psutil
